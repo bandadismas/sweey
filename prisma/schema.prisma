@@ -1,0 +1,307 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+
+model User {
+  id            String    @id @default(uuid())
+  firstName     String    @map("first_name")
+  lastName      String    @map("last_name")
+  email         String    @unique
+  password      String
+  phone         String?   // Optional phone number
+  isAdmin       Boolean   @default(false)   @map("is_admin")
+  createdAt     DateTime  @default(now())   @map("created_at")
+  updatedAt     DateTime  @updatedAt       @map("updated_at")
+
+  // Relationships
+  ratings       Rating[]
+  carts         Cart[]
+  wishlists     Wishlist[]
+  orders        Order[]       // Will be added later for purchases
+  products      Product[]     // If users can sell products
+  billingDetails BillingDetails[] // A user can have multiple billing addresses 
+  shippingAddresses ShippingAddress[] // A user can have multiple shipping addresses
+  reviews           Review[]
+
+  @@map("users")
+}
+
+
+model Product {
+  id               String      @id @default(uuid())
+  name             String
+  slug             String      @unique
+  description      String?
+  currentPrice     Decimal     @db.Decimal(10, 2)   @map("current_price")
+  previousPrice    Decimal?    @db.Decimal(10, 2)   @map("previous_price")
+  stockQuantity    Int         @map("stock_quantity")
+  isActive         Boolean     @default(true)       @map("is_active")
+  isFeatured       Boolean     @default(false)      @map("is_featured")
+  brand            String?
+  weight           Decimal?    @db.Decimal(10, 2) // In kg or lbs
+  dimensions       String?     // e.g., "10x20x5 cm"
+  createdAt        DateTime    @default(now()) @map("created_at")
+  updatedAt        DateTime    @updatedAt @map("updated_at")
+
+  // Relationships
+  seller           User?       @relation(fields: [sellerId], references: [id])
+  sellerId         String?     @map("seller_id") // Optional if products can exist without a direct seller user
+  images           ProductImage[]
+  ratings          Rating[]
+  cartItems        CartItem[]   
+  orderItems       OrderItem[]   // For linking to actual sold items
+  wishlistItems    WishlistItem[] // For linking to wishlist items
+  reviews          Review[]
+  categories       ProductCategory[]
+  // Consider Categories and Tags here
+
+  @@map("products")
+}
+
+model ProductImage {
+  id        String @id @default(uuid())
+  url       String
+  altText   String? @map("alt_text")
+  order     Int?    // To define the display order of images
+  productId String @map("product_id")
+  product   Product @relation(fields: [productId], references: [id])
+
+  @@map("product_images")
+}
+
+
+enum RatingValue {
+  ONE
+  TWO
+  THREE
+  FOUR
+  FIVE
+}
+
+model Rating {
+  id        String      @id @default(uuid())
+  value     RatingValue
+  comment   String?
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  productId String @map("product_id")
+  product   Product     @relation(fields: [productId], references: [id])
+
+  userId    String @map("user_id")
+  user      User        @relation(fields: [userId], references: [id])
+
+  @@unique([productId, userId]) // A user can only rate a product once
+  @@map("ratings")
+}
+
+
+enum CartStatus {
+  ACTIVE
+  CHECKED_OUT
+  ABANDONED
+}
+
+model Cart {
+  id          String      @id @default(uuid())
+  userId      String      @unique // A user has only one active cart
+  user        User        @relation(fields: [userId], references: [id])
+  status      CartStatus  @default(ACTIVE)
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  cartItems   CartItem[] 
+
+  @@map("carts")
+}
+
+
+model CartItem {
+  id                      String   @id @default(uuid())
+  quantity                Int
+  priceAtTimeOfAddition   Decimal  @db.Decimal(10, 2) @map("price_at_time_of_addition")
+  createdAt               DateTime @default(now()) @map("created_at")
+
+  cartId                  String @map("cart_id")
+  cart                    Cart     @relation(fields: [cartId], references: [id])
+
+  productId               String @map("product_id")
+  product                 Product  @relation(fields: [productId], references: [id])
+
+  @@unique([cartId, productId]) // Prevent duplicate product entries in the same cart
+  @@map("cart_items")
+}
+
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentStatus {
+  PAID
+  UNPAID
+  REFUNDED
+}
+
+model Order {
+  id                  String       @id @default(uuid())
+  userId              String       @map("user_id")
+  user                User         @relation(fields: [userId], references: [id])
+  orderDate           DateTime     @default(now()) @map("order_date") 
+  totalAmount         Decimal      @db.Decimal(10, 2) @map("total_amount")
+  status              OrderStatus  @default(PENDING) @map("status")
+  paymentStatus       PaymentStatus @default(UNPAID) @map("payment_status")
+  paymentMethod       String? @map("payment_method")
+  shippingAddressId   String?      @map("shipping_address_id") // Reference to a ShippingAddress (if separate)
+  billingDetailsId    String       @map("billing_details_id") // Reference to BillingDetails used for this order
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt           DateTime     @updatedAt @map("updated_at")
+
+  orderItems          OrderItem[] 
+  billingDetails      BillingDetails @relation(fields: [billingDetailsId], references: [id]) // Direct relation
+  shippingAddress     ShippingAddress? @relation(fields: [shippingAddressId], references: [id]) // Direct relation
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id              String  @id @default(uuid())
+  orderId         String @map("order_id")
+  order           Order   @relation(fields: [orderId], references: [id])
+  productId       String @map("product_id")
+  product         Product @relation(fields: [productId], references: [id])
+  quantity        Int
+  priceAtPurchase Decimal @db.Decimal(10, 2) @map("price_at_purchase") // Price at the time of order
+
+  @@unique([orderId, productId]) // An item appears once per order line
+  @@map("order_items")
+}
+
+
+model Wishlist {
+  id        String   @id @default(uuid())
+  name      String?  // Optional name if user can have multiple wishlists
+  userId    String   @unique @map("user_id") // Assuming one main wishlist per user, if multiple, remove @unique
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  wishlistItems WishlistItem[] 
+
+  @@map("wishlists")
+}
+
+model WishlistItem {
+  id         String   @id @default(uuid())
+  wishlistId String @map("wishlist_id")
+  wishlist   Wishlist @relation(fields: [wishlistId], references: [id])
+  productId  String @map("product_id")
+  product    Product  @relation(fields: [productId], references: [id])
+  addedAt    DateTime @default(now()) @map("added_at")
+
+  @@unique([wishlistId, productId]) // A product appears once per wishlist
+  @@map("wishlist_items")
+}
+
+
+model BillingDetails {
+  id             String   @id @default(uuid())
+  fullName       String @map("full_name")
+  companyName    String? @map("company_name")
+  addressLine1   String @map("address_line_1")
+  addressLine2   String? @map("address_line_2") // Apartment, Floor etc.
+  city           String 
+  state          String? // State/Province/Region
+  postalCode     String @map("postal_code")
+  country        String 
+  phoneNumber    String @map("phone_number")
+  email          String @map("email")
+  isDefault      Boolean  @default(false) @map("is_default") // For saved user addresses
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  userId         String?  @map("user_id") // Optional, if these details are linked to a User for saved addresses
+  user           User?    @relation(fields: [userId], references: [id])
+
+  orders         Order[]  // An order uses specific billing details
+
+  @@map("billing_details")
+}
+
+
+model ShippingAddress {
+  id             String   @id @default(uuid())
+  fullName       String @map("full_name")
+  addressLine1   String @map("address_line_1")
+  addressLine2   String? @map("address_line_2")
+  city           String 
+  state          String?
+  postalCode     String @map("postal_code")
+  country        String 
+  phoneNumber    String @map("phone_number")
+  isDefault      Boolean  @default(false) @map("is_default")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  userId         String?  @map("user_id") // Optional, if saved for a user
+  user           User?    @relation(fields: [userId], references: [id])
+
+  orders         Order[]
+
+  @@map("shipping_addresses")
+}
+
+
+model Category {
+  id        String @id @default(uuid())
+  name      String @unique
+  slug      String @unique
+  description String?
+  products  ProductCategory[]
+
+  @@map("categories")
+}
+
+model ProductCategory {
+  productId  String @map("product_id")
+  product    Product  @relation(fields: [productId], references: [id])
+  categoryId String @map("category_id")
+  category   Category @relation(fields: [categoryId], references: [id])
+
+  @@id([productId, categoryId]) // Composite primary key
+  @@map("product_categories")
+}
+
+
+model Review {
+  id        String   @id @default(uuid())
+  productId String @map("product_id")
+  product   Product  @relation(fields: [productId], references: [id])
+  userId    String @map("user_id")
+  user      User     @relation(fields: [userId], references: [id])
+  rating    Int      @default(0) // 1-5 or similar
+  title     String?
+  comment   String?
+  // Optional: helpfulVotes, reportedCount, images (via a ReviewImage model)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("reviews")
+}
