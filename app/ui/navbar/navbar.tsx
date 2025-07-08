@@ -19,7 +19,7 @@ export default async function Navbar() {
             </nav>
             <div className="flex justify-between items-center space-x-5">
                 <Search placeholder="What are you looking for?"/>
-                {!session &&
+                {session &&
                 <div className="flex justify-between items-center space-x-3">
                     <HeartIcon className="h-[25px] w-[25px] hidden md:block"/>
                     <Link href="/cart">
